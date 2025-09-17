@@ -266,62 +266,70 @@
          * 注意：由于GitHub的CORS限制，这里使用了一个简单的方式
          * 实际应用中可能需要使用GitHub Pages或代理服务
          */
-        async function fetchSongList() {
-            try {
-                // 注意：这里假设你有一个songlist.txt文件列出所有歌曲名
-                // 或者你可以直接在代码中维护歌曲列表
-                const response = await fetch(`${SONGS_BASE_URL}/songlist.txt`);
-                
-                if (!response.ok) {
-                    throw new Error('无法获取歌曲列表');
-                }
-                
-                const text = await response.text();
-                const songFileNames = text.split('\n')
-                    .map(name => name.trim())
-                    .filter(name => name && (name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.ogg')));
-                
-                // 解析歌曲信息
-                allSongs = songFileNames.map((fileName, index) => {
-                    // 移除文件扩展名
-                    const nameWithoutExt = fileName.replace(/\.(mp3|wav|ogg)$/i, '');
-                    
-                    // 拆分歌曲名和歌手（格式：歌曲名-歌手）
-                    const separatorIndex = nameWithoutExt.lastIndexOf('-');
-                    let title, artist;
-                    
-                    if (separatorIndex > 0 && separatorIndex < nameWithoutExt.length - 1) {
-                        title = nameWithoutExt.substring(0, separatorIndex).trim();
-                        artist = nameWithoutExt.substring(separatorIndex + 1).trim();
-                    } else {
-                        title = nameWithoutExt.trim();
-                        artist = "未知歌手";
-                    }
-                    
-                    return {
-                        id: index + 1,
-                        title: title,
-                        artist: artist,
-                        fileName: fileName,
-                        url: `${SONGS_BASE_URL}/${encodeURIComponent(fileName)}`,
-                        cover: `https://picsum.photos/seed/${title}-${artist}/200/200`
-                    };
-                });
-                
-                // 初始化过滤列表
-                filteredSongs = [...allSongs];
-                
-                // 显示歌曲列表
-                renderSongList(filteredSongs);
-                elements.loadingState.classList.add('hidden');
-                elements.songsContainer.classList.remove('hidden');
-                
-            } catch (error) {
-                console.error('加载歌曲失败:', error);
-                elements.loadingState.classList.add('hidden');
-                elements.errorState.classList.remove('hidden');
-            }
+        // 替换原有的fetchSongList函数，增强解析容错性
+async function fetchSongList(retries = 2) {
+    try {
+        const response = await fetch(`${SONGS_BASE_URL}/songlist.txt`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP错误: ${response.status}`);
         }
+        
+        const text = await response.text();
+        // 增强解析逻辑：处理空行、前后空格、换行符
+        const songFileNames = text
+            .split(/\r?\n/) // 兼容Windows(\r\n)和Linux(\n)换行符
+            .map(name => name.trim()) // 去除前后空格
+            .filter(name => {
+                // 过滤空行和非音频文件
+                if (!name) return false;
+                const ext = name.split('.').pop().toLowerCase();
+                return ['mp3', 'wav', 'ogg'].includes(ext);
+            });
+        
+        // 打印解析结果（方便调试）
+        console.log('解析到的音乐文件:', songFileNames);
+        
+        // 生成歌曲列表
+        allSongs = songFileNames.map((fileName, index) => {
+            const nameWithoutExt = fileName.replace(/\.(mp3|wav|ogg)$/i, '');
+            const separatorIndex = nameWithoutExt.lastIndexOf('-');
+            let title, artist;
+            
+            if (separatorIndex > 0 && separatorIndex < nameWithoutExt.length - 1) {
+                title = nameWithoutExt.substring(0, separatorIndex).trim();
+                artist = nameWithoutExt.substring(separatorIndex + 1).trim();
+            } else {
+                title = nameWithoutExt.trim();
+                artist = "未知歌手";
+            }
+            
+            return {
+                id: index + 1,
+                title: title,
+                artist: artist,
+                fileName: fileName,
+                url: `${SONGS_BASE_URL}${encodeURIComponent(fileName)}?t=${new Date().getTime()}`,
+                cover: `https://picsum.photos/seed/${title}-${artist}/200/200`
+            };
+        });
+        
+        filteredSongs = [...allSongs];
+        renderSongList(filteredSongs);
+        elements.loadingState.classList.add('hidden');
+        elements.songsContainer.classList.remove('hidden');
+        
+    } catch (error) {
+        console.error(`加载失败（剩余重试次数: ${retries}）:`, error);
+        if (retries > 0) {
+            setTimeout(() => fetchSongList(retries - 1), 1000);
+            return;
+        }
+        elements.loadingState.classList.add('hidden');
+        elements.errorState.classList.remove('hidden');
+    }
+}
+    
 
         /**
          * 渲染歌曲列表
@@ -741,6 +749,7 @@
     </script>
 </body>
 </html>
+
 
 
 
